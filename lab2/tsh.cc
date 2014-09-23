@@ -177,8 +177,10 @@ void eval(char *cmdline)
     sigprocmask(SIG_BLOCK, &sig_set, NULL);
 
     if ((pid = fork()) == 0) {
-      sigprocmask(SIG_UNBLOCK, &sig_set, NULL);
+      setpgid(0, 0);
 
+      sigprocmask(SIG_UNBLOCK, &sig_set, NULL);
+      
       execve(argv[0], &argv[0], envp);
     } else {
       addjob(jobs, pid, (bg) ? BG : FG, cmdline);      
@@ -317,6 +319,12 @@ void sigchld_handler(int sig)
 //
 void sigint_handler(int sig) 
 {
+  pid_t pid;
+
+  pid = fgpid(jobs);
+
+  kill(-pid, SIGINT);
+
   return;
 }
 
