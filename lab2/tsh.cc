@@ -303,10 +303,17 @@ void sigchld_handler(int sig)
 {
   pid_t pid;
   int status;
+  struct job_t *job;  
 
   pid = waitpid(-1, &status, WNOHANG | WUNTRACED);
 
-  deletejob(jobs, pid);
+  if (WIFSTOPPED(status)) {
+    job = getjobpid(jobs, pid);
+
+    job->state = ST;
+  } else {
+    deletejob(jobs, pid);
+  }
 
   return;
 }
@@ -336,6 +343,12 @@ void sigint_handler(int sig)
 //
 void sigtstp_handler(int sig) 
 {
+  pid_t pid;
+
+  pid = fgpid(jobs);
+
+  kill(-pid, SIGTSTP);
+  
   return;
 }
 
