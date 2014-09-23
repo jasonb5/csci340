@@ -162,11 +162,32 @@ void eval(char *cmdline)
   // in background mode or FALSE if it should run in FG
   //
   int bg = parseline(cmdline, argv); 
+  pid_t pid;
+  sigset_t sig_set;
+
   if (argv[0] == NULL)  
     return;   /* ignore empty lines */
 
   if (!builtin_cmd(argv)) {
+    sigemptyset(&sig_set);
+  
+    sigaddset(&sig_set, SIGCHLD);
+  
+    sigprocmask(SIG_BLOCK, &sig_set, NULL);
+
+    if ((pid = fork()) == 0) {
+      sigprocmask(SIG_UNBLOCK, &sig_set, NULL);
+
+      execv(argv[0], argv);
+    } else {
+      addjob(jobs, pid, (bg) ? BG : FG, cmdline);      
     
+      sigprocmask(SIG_UNBLOCK, &sig_set, NULL);
+
+      if (!bg) {
+         waitfg(pid);        
+      }
+    }      
   }
 
   return;
@@ -248,6 +269,12 @@ void do_bgfg(char **argv)
 //
 void waitfg(pid_t pid)
 {
+  pid_t fg_pid;
+
+  while ((fg_pid = fgpid(jobs)) == pid) {
+    sleep(10);
+  }
+
   return;
 }
 
@@ -267,6 +294,13 @@ void waitfg(pid_t pid)
 //
 void sigchld_handler(int sig) 
 {
+  pid_t pid;
+  int status;
+
+  pid = waitpid(-1, &status, WNOHANG | WUNTRACED);
+
+  deletejob(jobs, pid);
+
   return;
 }
 
