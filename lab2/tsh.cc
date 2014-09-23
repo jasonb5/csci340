@@ -164,6 +164,7 @@ void eval(char *cmdline)
   int bg = parseline(cmdline, argv); 
   pid_t pid;
   sigset_t sig_set;
+  char *envp[] = { NULL };
 
   if (argv[0] == NULL)  
     return;   /* ignore empty lines */
@@ -178,14 +179,14 @@ void eval(char *cmdline)
     if ((pid = fork()) == 0) {
       sigprocmask(SIG_UNBLOCK, &sig_set, NULL);
 
-      execv(argv[0], argv);
+      execve(argv[0], &argv[0], envp);
     } else {
       addjob(jobs, pid, (bg) ? BG : FG, cmdline);      
     
       sigprocmask(SIG_UNBLOCK, &sig_set, NULL);
 
       if (!bg) {
-         waitfg(pid);        
+        waitfg(pid);        
       }
     }      
   }
@@ -209,6 +210,10 @@ int builtin_cmd(char **argv)
   if (cmd == "quit") {
     exit(1);
 
+    return 1;
+  } else if (cmd == "jobs") {
+    listjobs(jobs); 
+    
     return 1;
   }
 
