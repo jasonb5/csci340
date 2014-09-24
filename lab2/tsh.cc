@@ -162,6 +162,7 @@ void eval(char *cmdline)
   // in background mode or FALSE if it should run in FG
   //
   int bg = parseline(cmdline, argv); 
+  int jobid;
   pid_t pid;
   sigset_t sig_set;
   char *envp[] = { NULL };
@@ -181,7 +182,15 @@ void eval(char *cmdline)
 
       sigprocmask(SIG_UNBLOCK, &sig_set, NULL);
       
-      execve(argv[0], &argv[0], envp);
+      if (execve(argv[0], &argv[0], envp) < 0) {
+        int size = sizeof(cmdline);
+        
+        cmdline[size-1] = '\0';
+
+        printf("%s: Command not found\n", cmdline);  
+      
+        exit(1);
+      }
     } else {
       addjob(jobs, pid, (bg) ? BG : FG, cmdline);      
     
@@ -189,6 +198,10 @@ void eval(char *cmdline)
 
       if (!bg) {
         waitfg(pid);        
+      } else {
+        jobid = pid2jid(pid);
+
+        printf("[%d] (%d) %s", jobid, pid, cmdline);
       }
     }      
   }
@@ -275,6 +288,8 @@ void do_bgfg(char **argv)
     jobp->state = BG;
 
     kill(-jobp->pid, SIGCONT);  
+  
+    printf("[%d] (%d) %s", jobp->jid, jobp->pid, jobp->cmdline);
   } else if (cmd == "fg") {
     jobp->state = FG;
 
@@ -331,9 +346,13 @@ void sigchld_handler(int sig)
   pid = waitpid(-1, &status, WNOHANG | WUNTRACED);
 
   if (WIFSTOPPED(status)) {
+    int stop_sig = WSTOPSIG(status);
+
     job = getjobpid(jobs, pid);
 
     job->state = ST;
+  
+    printf("Job [%d] (%d) stopped by signal %d\n", job->jid, job->pid, stop_sig);  
   } else {
     deletejob(jobs, pid);
   }
