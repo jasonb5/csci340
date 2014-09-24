@@ -217,6 +217,10 @@ int builtin_cmd(char **argv)
     listjobs(jobs); 
     
     return 1;
+  } else if (cmd == "bg" || cmd == "fg") {
+    do_bgfg(argv);    
+
+    return 1;
   }
 
   return 0;     /* not a builtin command */
@@ -267,6 +271,18 @@ void do_bgfg(char **argv)
   //
   string cmd(argv[0]);
 
+  if (cmd == "bg") {
+    jobp->state = BG;
+
+    kill(-jobp->pid, SIGCONT);  
+  } else if (cmd == "fg") {
+    jobp->state = FG;
+
+    kill(-jobp->pid, SIGCONT);
+
+    waitfg(jobp->pid);
+  }
+
   return;
 }
 
@@ -277,9 +293,16 @@ void do_bgfg(char **argv)
 void waitfg(pid_t pid)
 {
   pid_t fg_pid;
+  struct job_t *job;
 
-  while ((fg_pid = fgpid(jobs)) == pid) {
+  fg_pid = fgpid(jobs);
+
+  job = getjobpid(jobs, fg_pid);
+
+  while (fg_pid == pid && job->state != ST) {
     sleep(10);
+  
+    fg_pid = fgpid(jobs);
   }
 
   return;
