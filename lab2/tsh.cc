@@ -341,21 +341,28 @@ void sigchld_handler(int sig)
 {
   pid_t pid;
   int status;
+  int stop_sig;
   struct job_t *job;  
 
   pid = waitpid(-1, &status, WNOHANG | WUNTRACED);
 
+  job = getjobpid(jobs, pid);
+  
   if (WIFSTOPPED(status)) {
-    int stop_sig = WSTOPSIG(status);
-
-    job = getjobpid(jobs, pid);
+    stop_sig = WSTOPSIG(status);
 
     job->state = ST;
   
     printf("Job [%d] (%d) stopped by signal %d\n", job->jid, job->pid, stop_sig);  
-  } else {
-    deletejob(jobs, pid);
+  
+    return;
+  } else if (WIFSIGNALED(status)) {
+    stop_sig = WTERMSIG(status);
+
+    printf("Job [%d] (%d) terminated by signal %d\n", job->jid, job->pid, stop_sig);
   }
+
+  deletejob(jobs, pid);
 
   return;
 }
