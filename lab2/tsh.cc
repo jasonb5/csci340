@@ -346,23 +346,27 @@ void sigchld_handler(int sig)
 
   pid = waitpid(-1, &status, WNOHANG | WUNTRACED);
 
+  if (pid == -1 || pid == 0) {
+    return;
+  }
+
   job = getjobpid(jobs, pid);
-  
+ 
   if (WIFSTOPPED(status)) {
     stop_sig = WSTOPSIG(status);
 
     job->state = ST;
   
     printf("Job [%d] (%d) stopped by signal %d\n", job->jid, job->pid, stop_sig);  
-  
-    return;
   } else if (WIFSIGNALED(status)) {
     stop_sig = WTERMSIG(status);
 
     printf("Job [%d] (%d) terminated by signal %d\n", job->jid, job->pid, stop_sig);
+  
+    deletejob(jobs, pid);
+  } else if (WIFEXITED(status)) {
+    deletejob(jobs, pid);
   }
-
-  deletejob(jobs, pid);
 
   return;
 }
