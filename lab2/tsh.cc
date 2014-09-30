@@ -183,7 +183,7 @@ void eval(char *cmdline)
       sigprocmask(SIG_UNBLOCK, &sig_set, NULL);
       
       if (execve(argv[0], &argv[0], envp) < 0) {
-        int size = sizeof(cmdline);
+        int size = strlen(cmdline);
         
         cmdline[size-1] = '\0';
 
