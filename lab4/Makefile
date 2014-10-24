@@ -7,7 +7,7 @@ LFLAGS = -Wall -Wextra -pthread
 all: lookup queueTest pthread-hello multi-lookup
 
 run:
-	./multi-lookup input/names1.txt result.txt
+	./multi-lookup input/names1.txt results.txt
 
 multi-lookup: multi-lookup.o queue.o util.o
 	$(CC) $(LFLAGS) $^ -o $@

@@ -9,71 +9,87 @@ int main(int argc, char **argv) {
     exit(1);
   }
 
+  int i;
   queue queue;
   void *result;
-  FILE *out_file; 
-  pthread_mutex_t file_mutex; 
-  pthread_mutex_t queue_mutex;
-  thread_info *requesters = calloc(1, sizeof(thread_info));
-  thread_info *resolvers = calloc(1, sizeof(thread_info));
+  sem_t empty, full;
+  pthread_mutex_t queue_mut, file_mut;
+ 
+  queue_init(&queue, QUEUE_SIZE); 
+
+  pthread_mutex_init(&queue_mut, NULL);
+
+  pthread_mutex_init(&file_mut, NULL);
+
+  sem_init(&empty, 0, QUEUE_SIZE);
+
+  sem_init(&full, 0, 0);
+
+  int requester_count = argc - 2;
+  thread_info *requesters = calloc(requester_count, sizeof(thread_info));
 
   if (requesters == NULL) {
-    error("failed to allocate memory");
-  
+    error("Failed to allocate memory for requesters");
+    
     exit(1);
   }
+
+  int resolver_count = get_resolver_count();
+  thread_info *resolvers = calloc(resolver_count, sizeof(thread_info));
 
   if (resolvers == NULL) {
-    error("failed to allocate memory");
+    error("Failed to allocate memory for resolvers");
 
     exit(1);
   }
 
-  if ((out_file = fopen(argv[2], "w+")) == NULL) {
-    error("failed to open output file");
+  debug("Spawning %d requester threads", requester_count);
 
-    exit(1);
-  }
+  debug("Spawning %d resolver threads", resolver_count);
 
-  queue_init(&queue, 10);
+  for (i = 0; i < requester_count; ++i) {
+    requesters[i].id = i + 1;
 
-  pthread_mutex_init(&queue_mutex, NULL);
+    requesters[i].file = argv[(1 + i)];
 
-  pthread_mutex_init(&file_mutex, NULL);
+    requesters[i].queue = &queue;
 
-  requesters[0].id = 0;
+    requesters[i].empty = &empty;
 
-  requesters[0].file = argv[1];
-
-  requesters[0].queue = &queue;
-
-  requesters[0].queue_mutex = &queue_mutex;
-
-  pthread_create(&requesters[0].thread, NULL, &requester_thread, &requesters[0]);
-
-  resolvers[0].id = 0;
-
-  resolvers[0].queue = &queue;
-
-  resolvers[0].out_file = out_file;
-
-  resolvers[0].file_mutex = &file_mutex;
-
-  resolvers[0].queue_mutex = &queue_mutex;
-
-  pthread_create(&resolvers[0].thread, NULL, &resolver_thread, &resolvers[0]);
-
-  pthread_join(requesters[0].thread, &result);
-
-  pthread_join(resolvers[0].thread, &result); 
-
-  pthread_mutex_destroy(&file_mutex);
+    requesters[i].full = &full;
   
-  pthread_mutex_destroy(&queue_mutex);
+    requesters[i].queue_mut = &queue_mut;
+
+    pthread_create(&requesters[i].handle, NULL, &requester_thread, &requesters[i]); 
+  } 
+
+  for (i = 0; i < resolver_count; ++i) {
+    resolvers[i].id = i + 1;
+
+    resolvers[i].file = argv[(argc - 1)];
+
+    resolvers[i].file_mut = &file_mut;
+
+    resolvers[i].queue = &queue;
+
+    resolvers[i].empty = &empty;
+
+    resolvers[i].full = &full;
+  
+    resolvers[i].queue_mut = &queue_mut;
+
+    pthread_create(&resolvers[i].handle, NULL, &resolver_thread, &resolvers[i]);
+  }
+ 
+  for (i = 0; i < requester_count; ++i) {
+    pthread_join(requesters[i].handle, &result);
+  }
+
+  for (i = 0; i < resolver_count; ++i) {
+    pthread_join(resolvers[i].handle, &result);
+  }
 
   queue_cleanup(&queue);
-
-  fclose(out_file);
 
   free(resolvers);
 
@@ -83,43 +99,39 @@ int main(int argc, char **argv) {
 }
 
 void *requester_thread(void *arg) {
-  FILE *fp;
-  char *buffer; 
+  FILE *fp; 
+  char *buffer;
   thread_info *thread = arg;
-  queue *queue = thread->queue;
-  pthread_mutex_t *mutex = thread->queue_mutex;
 
   debug("Requester thread %d processing %s", thread->id, thread->file);
 
   if ((fp = fopen(thread->file, "r")) == NULL) {
-    error("failed to open file %s", thread->file);
+    error("Failed to open %s", thread->file);
 
     return NULL;
   }
 
   while (1) {
-    buffer = malloc(1024 * sizeof(char));
-   
-     if (fscanf(fp, "%1024s", buffer) < 0) {
-      free(buffer);
-      
+    buffer = malloc(atoi(MAX_LINE) * sizeof(char));
+
+    if (fscanf(fp, "%" MAX_LINE "s", buffer) <= 0) {
       break;
     }
-  
-    while (queue_is_full(queue)) {
-      usleep(100);
-    }
 
-    pthread_mutex_lock(mutex);
+    sem_wait(thread->empty);
+
+    pthread_mutex_lock(thread->queue_mut);
 
     debug("Requester thread %d pushing %s", thread->id, buffer);
 
-    queue_push(queue, buffer);
+    queue_push(thread->queue, buffer);
 
-    buffer = NULL;
+    pthread_mutex_unlock(thread->queue_mut);
 
-    pthread_mutex_unlock(mutex); 
+    sem_post(thread->full); 
   }
+
+  free(buffer);
 
   fclose(fp);
 
@@ -127,38 +139,62 @@ void *requester_thread(void *arg) {
 }
 
 void *resolver_thread(void *arg) {
-  char *buffer; 
-  char resolved[1024]; 
+  FILE *fp;
+  char *buffer;
+  int length = atoi(MAX_LINE); 
+  char resolved[length]; 
   thread_info *thread = arg;
-  queue *queue = thread->queue; 
-  
-  while (queue_is_empty(queue)) {
-    usleep(100);
+
+  if ((fp = fopen(thread->file, "a")) == NULL) {
+    error("Failed to open %s", thread->file); 
+
+    return NULL;
   }
 
   while (1) {
-    pthread_mutex_lock(thread->queue_mutex);
+    sem_wait(thread->full);
 
-    buffer = queue_pop(queue);
+    pthread_mutex_lock(thread->queue_mut);
 
-    pthread_mutex_unlock(thread->queue_mutex);
+    buffer = queue_pop(thread->queue);
 
-    if (buffer == NULL) {
-      break;
+    debug("Resolver thread %d popped %s", thread->id, buffer);
+
+    pthread_mutex_unlock(thread->queue_mut);
+
+    sem_post(thread->empty);
+
+    if (dnslookup(buffer, resolved, length) == UTIL_FAILURE) {
+      resolved[length] = '\0';
     }
 
-    debug("Resolver thread %d popping %s", thread->id, buffer);
+    debug("Resolver thread %d resolved %s from %s", thread->id, buffer, resolved); 
 
-    if (dnslookup(buffer, resolved, 1024) == UTIL_FAILURE) {
-      resolved[0] = '\0';
-    }
+    pthread_mutex_lock(thread->file_mut);
 
-    debug("Resolver thread %d %s returned as %s", thread->id, buffer, resolved);
+    fprintf(fp, "%s,%s\n", buffer, resolved);
 
-    fprintf(thread->out_file, "%s,%s\n", buffer, resolved);
+    pthread_mutex_unlock(thread->file_mut);
 
-    free(buffer);
-  }
+    free(buffer); 
+  } 
+
+  fclose(fp);
 
   return NULL;
+}
+
+int get_resolver_count() {
+  int count = MIN_RESOLVER_THREADS;
+  int cpu = sysconf(_SC_NPROCESSORS_ONLN);
+
+  if (cpu != -1 && cpu > count) {
+    if (MAX_RESOLVER_THREADS != -1 && cpu > MAX_RESOLVER_THREADS) {
+      count = MAX_RESOLVER_THREADS;
+    } else { 
+      count = cpu;
+    }
+  }
+
+  return count;
 }
