@@ -124,9 +124,9 @@ void *requester_thread(void *arg) {
   }
 
   while (1) {
-    buffer = malloc(atoi(MAX_LINE) * sizeof(char));
+    buffer = malloc(MAX_NAME_LENGTH * sizeof(char));
 
-    if (fscanf(fp, "%" MAX_LINE "s", buffer) <= 0) {
+    if (fscanf(fp, "%s", buffer) <= 0) {
       break;
     }
 
@@ -153,8 +153,6 @@ void *requester_thread(void *arg) {
 void *resolver_thread(void *arg) {
   FILE *fp;
   char *buffer;
-  int length = atoi(MAX_LINE); 
-  char resolved[length]; 
   thread_info *thread = arg;
 
   if ((fp = fopen(thread->file, "a")) == NULL) {
@@ -186,15 +184,26 @@ void *resolver_thread(void *arg) {
 
     sem_post(thread->empty);
 
-    if (dnslookup(buffer, resolved, length) == UTIL_FAILURE) {
+   	int i, ret; 
+		char *resolved[10];
+
+    ret = dns_lookup(buffer, resolved);
+
+		if (ret == 0) {
       resolved[0] = '\0';
-    }
-
-    debug("Resolver thread %d resolved %s from %s", thread->id, buffer, resolved); 
-
+  	
+			ret = 1; 
+		}
+ 
     pthread_mutex_lock(thread->file_mut);
 
-    fprintf(fp, "%s,%s\n", buffer, resolved);
+		fprintf(fp, "%s", buffer);
+
+		for (i = 0; i < ret; ++i) {
+			fprintf(fp, ",%s", resolved[i]);
+		}
+
+		fprintf(fp, "\n");
 
     pthread_mutex_unlock(thread->file_mut);
 
@@ -218,5 +227,51 @@ int get_resolver_count() {
     }
   }
 
-  return count;
+  //return count;
+	return 1;
+}
+
+int dns_lookup(const char *host, char **result) {
+	int i, c;	
+	char *temp[25];	
+	struct addrinfo hints;
+	struct addrinfo *results, *rp;
+
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = AF_UNSPEC;
+	hints.ai_socktype = SOCK_STREAM; // limit to prevent duplicates
+	hints.ai_flags = AI_PASSIVE;
+	hints.ai_protocol = 0;
+
+	if (getaddrinfo(host, NULL, &hints, &results) != 0) {
+		error("Failed to resolve %s", host);	
+
+		return 0;
+	}
+
+	for (i = 0, rp = results; rp != NULL; rp = rp->ai_next) {
+		temp[i] = malloc(MAX_IP_LENGTH * sizeof(char));	
+
+		if (rp->ai_family == AF_INET) {	
+			struct sockaddr_in *addr_in = (struct sockaddr_in *)rp->ai_addr;
+
+			inet_ntop(rp->ai_family, &addr_in->sin_addr, temp[i], rp->ai_addrlen);			
+	
+			++i;	
+		} else if (IPV6_RESOLVE && rp->ai_family == AF_INET6) {
+			struct sockaddr_in6 *addr_in = (struct sockaddr_in6 *)rp->ai_addr;	
+
+			inet_ntop(rp->ai_family, &addr_in->sin6_addr, temp[i], rp->ai_addrlen);	
+
+			++i;
+		}
+	}
+
+	for (c = 0; c < i; ++c) {
+		result[c] = temp[c];
+	}
+
+	freeaddrinfo(results);
+
+  return i;
 }

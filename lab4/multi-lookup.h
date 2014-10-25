@@ -21,7 +21,14 @@
 #include "queue.h"
 
 #define QUEUE_SIZE 10
-#define MAX_LINE "1024"
+
+//#define IPV6_SUPPORT
+
+#ifdef IPV6_SUPPORT
+#define IPV6_RESOLVE 1
+#else
+#define IPV6_RESOLVE 0
+#endif
 
 #define MAX_INPUT_FILES 10
 #define MAX_RESOLVER_THREADS 10
@@ -44,6 +51,6 @@ void *resolver_thread(void *arg);
 
 int get_resolver_count();
 
-int dns_lookup(const char *host, char *results, int size);
+int dns_lookup(const char *host, char **results);
 
 #endif // LAB4_MULTI_LOOKUP_H_
