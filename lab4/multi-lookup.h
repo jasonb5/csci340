@@ -20,7 +20,7 @@
 #include "util.h"
 #include "queue.h"
 
-#define QUEUE_SIZE 10
+#define QUEUE_SIZE 50
 
 //#define IPV6_SUPPORT
 
