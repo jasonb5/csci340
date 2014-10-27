@@ -38,6 +38,7 @@
 
 typedef struct thread_info_s {
   int id;
+	FILE *out_fp;
   char *file;
   queue *queue; 
   pthread_t handle;

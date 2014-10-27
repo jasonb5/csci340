@@ -10,8 +10,8 @@ int main(int argc, char **argv) {
   }
 
   int i;
-  queue queue;
-  void *result;
+ 	FILE *fp; 
+	queue queue;
   sem_t empty, full;
   pthread_mutex_t queue_mut, file_mut;
  
@@ -40,8 +40,19 @@ int main(int argc, char **argv) {
   if (resolvers == NULL) {
     error("Failed to allocate memory for resolvers");
 
+		free(requesters);
+
     exit(1);
   }
+
+	if ((fp = fopen(argv[(argc - 1)], "w")) == NULL) {
+		error("Failed to open output file");
+
+		free(requesters);
+		free(resolvers);
+
+		exit(1);
+	}
 
   debug("Spawning %d requester threads", requester_count);
 
@@ -66,7 +77,7 @@ int main(int argc, char **argv) {
   for (i = 0; i < resolver_count; ++i) {
     resolvers[i].id = i + 1;
 
-    resolvers[i].file = argv[(argc - 1)];
+    resolvers[i].out_fp = fp;
 
     resolvers[i].file_mut = &file_mut;
 
@@ -82,7 +93,7 @@ int main(int argc, char **argv) {
   }
  
   for (i = 0; i < requester_count; ++i) {
-    pthread_join(requesters[i].handle, &result);
+    pthread_join(requesters[i].handle, NULL);
   }
 
   for (i = 0; i < resolver_count; ++i) {
@@ -98,8 +109,14 @@ int main(int argc, char **argv) {
   }
 
   for (i = 0; i < resolver_count; ++i) {
-    pthread_join(resolvers[i].handle, &result);
+    pthread_join(resolvers[i].handle, NULL);
   }
+
+	fclose(fp);
+
+	pthread_mutex_destroy(&file_mut);
+
+	pthread_mutex_destroy(&queue_mut);
 
   queue_cleanup(&queue);
 
@@ -151,15 +168,8 @@ void *requester_thread(void *arg) {
 }
 
 void *resolver_thread(void *arg) {
-  FILE *fp;
   char *buffer;
   thread_info *thread = arg;
-
-  if ((fp = fopen(thread->file, "a")) == NULL) {
-    error("Failed to open %s", thread->file); 
-
-    return NULL;
-  }
 
   while (1) {
     sem_wait(thread->full);
@@ -184,33 +194,35 @@ void *resolver_thread(void *arg) {
 
     sem_post(thread->empty);
 
-   	int i, ret; 
-		char *resolved[10];
+  	int i, ret; 
+		char **resolved;
 
-    ret = dns_lookup(buffer, resolved);
+		resolved = malloc(20 * sizeof(char**));
 
-		if (ret == 0) {
-      resolved[0] = '\0';
-  	
-			ret = 1; 
-		}
- 
+  	ret = dns_lookup(buffer, resolved);
+
     pthread_mutex_lock(thread->file_mut);
 
-		fprintf(fp, "%s", buffer);
+		fprintf(thread->out_fp, "%s", buffer);
 
-		for (i = 0; i < ret; ++i) {
-			fprintf(fp, ",%s", resolved[i]);
+		if (ret == 0) {
+			fprintf(thread->out_fp, ",");
+		} else {
+			for (i = 0; i < ret; ++i) {
+				fprintf(thread->out_fp, ",%s", resolved[i]);
+			
+				free(resolved[i]);
+			}
 		}
 
-		fprintf(fp, "\n");
+		fprintf(thread->out_fp, "\n");
 
     pthread_mutex_unlock(thread->file_mut);
 
+		free(resolved);
+
     free(buffer); 
   } 
-
-  fclose(fp);
 
   return NULL;
 }
@@ -227,13 +239,11 @@ int get_resolver_count() {
     }
   }
 
-  //return count;
-	return 1;
+	return count;
 }
 
 int dns_lookup(const char *host, char **result) {
-	int i, c;	
-	char *temp[25];	
+	int i = 0;
 	struct addrinfo hints;
 	struct addrinfo *results, *rp;
 
@@ -250,25 +260,23 @@ int dns_lookup(const char *host, char **result) {
 	}
 
 	for (i = 0, rp = results; rp != NULL; rp = rp->ai_next) {
-		temp[i] = malloc(MAX_IP_LENGTH * sizeof(char));	
-
 		if (rp->ai_family == AF_INET) {	
+			result[i] = malloc(MAX_IP_LENGTH * sizeof(char));	
+
 			struct sockaddr_in *addr_in = (struct sockaddr_in *)rp->ai_addr;
 
-			inet_ntop(rp->ai_family, &addr_in->sin_addr, temp[i], rp->ai_addrlen);			
+			inet_ntop(rp->ai_family, &addr_in->sin_addr, result[i], MAX_IP_LENGTH);			
 	
 			++i;	
 		} else if (IPV6_RESOLVE && rp->ai_family == AF_INET6) {
+			result[i] = malloc(MAX_IP_LENGTH * sizeof(char));	
+			
 			struct sockaddr_in6 *addr_in = (struct sockaddr_in6 *)rp->ai_addr;	
 
-			inet_ntop(rp->ai_family, &addr_in->sin6_addr, temp[i], rp->ai_addrlen);	
+			inet_ntop(rp->ai_family, &addr_in->sin6_addr, result[i], rp->ai_addrlen);	
 
 			++i;
 		}
-	}
-
-	for (c = 0; c < i; ++c) {
-		result[c] = temp[c];
 	}
 
 	freeaddrinfo(results);
