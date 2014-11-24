@@ -7,15 +7,10 @@ sim = ./sim
 CC = gcc
 CXX = g++
 CFLAGS = -Wall -O
-CPPFLAGS = -g -Igoogletest/include
 #FILES = $(sim) $(simec)
 FILES = $(sim)
 
 all: $(FILES)
-
-test: schedule_test.o schedule.o
-	$(CXX) -o test schedule_test.o schedule.o -pthread -Lgoogletest -lgtest
-	./test
 
 sim: sim.o schedule.o
 	$(CC) -o sim sim.o schedule.o
